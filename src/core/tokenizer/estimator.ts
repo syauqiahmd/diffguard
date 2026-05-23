@@ -18,7 +18,13 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'ollama':                     { input: 0.0,  output: 0.0  },
 };
 
-const DEFAULT_PRICING = MODEL_PRICING['claude-sonnet-4-6']!;
+// Per-provider fallback when model isn't in the pricing table
+const PROVIDER_FALLBACK_PRICING: Record<string, { input: number; output: number }> = {
+  anthropic: MODEL_PRICING['claude-haiku-4-5']!,
+  openai:    MODEL_PRICING['gpt-4o-mini']!,
+  gemini:    MODEL_PRICING['gemini-2.0-flash']!,
+  ollama:    { input: 0, output: 0 },
+};
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -31,7 +37,8 @@ export function estimateCost(
   provider?: string
 ): number {
   if (provider === 'ollama') return 0;
-  const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING;
+  const fallback = (provider && PROVIDER_FALLBACK_PRICING[provider]) ?? MODEL_PRICING['claude-sonnet-4-6']!;
+  const pricing = MODEL_PRICING[model] ?? fallback;
 
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;

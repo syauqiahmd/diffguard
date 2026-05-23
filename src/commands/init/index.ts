@@ -268,8 +268,7 @@ DIFFGUARD_MAX_SESSION_COST_USD=2.00
   writeFileSync(envExamplePath, envExampleContent, 'utf-8');
   printSuccess('Created .env.example');
 
-  console.log('');
-  console.log(chalk.bold.green('  DiffGuard initialized successfully!'));
+  printSuccess('DiffGuard initialized successfully!');
   console.log('');
   console.log(chalk.dim('  Next steps:'));
   console.log(chalk.dim(`  1. Edit config if needed: ${projectDir(cwd)}/config.yaml`));

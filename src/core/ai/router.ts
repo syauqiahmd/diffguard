@@ -47,13 +47,13 @@ export function selectModel(
   if (task === 'review' && process.env.DIFFGUARD_MODEL) return process.env.DIFFGUARD_MODEL;
 
   const provider = process.env.DIFFGUARD_PROVIDER ?? 'anthropic';
+  const providerDefaults = MODEL_DEFAULTS[provider] ?? MODEL_DEFAULTS.anthropic!;
 
   if (task === 'summarize') {
-    // Always use the cheapest model for summarization
-    return MODEL_DEFAULTS[provider]?.fast ?? MODEL_DEFAULTS.anthropic!.fast!;
+    return providerDefaults.fast!;
   }
 
-  return MODEL_DEFAULTS[provider]?.[mode] ?? MODEL_DEFAULTS[provider]?.balanced ?? 'claude-sonnet-4-6';
+  return providerDefaults[mode] ?? providerDefaults.balanced!;
 }
 
 export function resetProvider(): void {

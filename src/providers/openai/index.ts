@@ -29,6 +29,7 @@ export class OpenAIProvider implements AIProvider {
     model: string = 'gpt-4o'
   ): Promise<AIResponse> {
     const totalSize = prompt.length + system.length;
+    // Stream above 50KB to avoid blocking on large diffs (matches Anthropic provider threshold)
     const useStreaming = totalSize > 50_000;
 
     if (useStreaming) {
