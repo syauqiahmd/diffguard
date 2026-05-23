@@ -7,8 +7,10 @@ export async function recordUsage(record: UsageRecord): Promise<void> {
   try {
     ensureProjectDir();
     appendFileSync(usagePath(), JSON.stringify(record) + '\n', 'utf-8');
-  } catch {
-    // Non-fatal — disk errors must not crash the CLI after a successful review
+  } catch (err) {
+    // Only swallow I/O errors (ENOSPC, EACCES, etc.) — let programming bugs propagate
+    if (err instanceof Error && 'code' in err) return;
+    throw err;
   }
 }
 

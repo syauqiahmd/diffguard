@@ -161,7 +161,7 @@ function capFix(snippet: string, max = 60): string {
   return snippet.length > max ? snippet.slice(0, max - 3) + '...' : snippet;
 }
 
-export function printCommentReview(content: string): void {
+export function printCommentReview(content: string, suppressedCount = 0): void {
   console.log('');
   let droppedLines = 0;
   const lines = content.split('\n');
@@ -184,9 +184,14 @@ export function printCommentReview(content: string): void {
       droppedLines++;
     }
   }
-  if (droppedLines > 0) {
-    process.stdout.write(chalk.dim(`  (${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered)\n`));
+
+  const notes: string[] = [];
+  if (droppedLines > 0) notes.push(`${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered`);
+  if (suppressedCount > 0) notes.push(`${suppressedCount} finding${suppressedCount === 1 ? '' : 's'} suppressed`);
+  if (notes.length > 0) {
+    process.stdout.write(chalk.dim(`  (${notes.join(' · ')})\n`));
   }
+
   console.log('');
 }
 

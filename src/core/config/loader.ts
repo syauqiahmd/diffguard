@@ -45,6 +45,17 @@ const DiffguardConfigSchema = z.object({
     .array(z.string())
     .optional()
     .default(['dist/', 'coverage/', 'node_modules/', '.git/']),
+  suppress: z
+    .array(
+      z.object({
+        file:     z.string().optional(),
+        line:     z.number().optional(),
+        contains: z.string().optional(),
+        tag:      z.string().optional(),
+      })
+    )
+    .optional()
+    .default([]),
 });
 
 const DEFAULT_CONFIG: DiffguardConfig = {
@@ -64,6 +75,7 @@ const DEFAULT_CONFIG: DiffguardConfig = {
     controller_must_not_contain_business_logic: true,
   },
   ignore: ['dist/', 'coverage/', 'node_modules/', '.git/'],
+  suppress: [],
 };
 
 let _config: DiffguardConfig | null = null;

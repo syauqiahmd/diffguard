@@ -22,6 +22,7 @@ import {
   printCommentReview,
 } from '../../core/formatter/terminal.js';
 import { requireInit } from '../../core/init-guard.js';
+import { applySuppressions } from '../../core/suppressor/index.js';
 import type { AIResponse } from '../../types/index.js';
 
 interface ReviewOptions {
@@ -330,8 +331,10 @@ async function runReview(options: ReviewOptions): Promise<void> {
   // Step 9: Print results
   if (aiResponse) {
     const { content: reviewContent, confidence } = extractConfidence(aiResponse.content);
+
     if (isComment) {
-      printCommentReview(reviewContent);
+      const { content: filtered, suppressedCount } = applySuppressions(reviewContent, config);
+      printCommentReview(filtered, suppressedCount);
     } else {
       printReview(reviewContent);
     }
