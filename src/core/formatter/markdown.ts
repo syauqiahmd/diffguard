@@ -1,17 +1,9 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
+import { writeFileSync } from 'fs';
 import type { AIResponse, ReviewContext, RuleViolation } from '../../types/index.js';
 import { formatCost, formatTokens } from '../tokenizer/estimator.js';
+import { reviewReportPath, ensureProjectDir } from '../paths.js';
 
-const REPORT_DIR = '.diffguard';
-const REPORT_FILE = 'review.md';
-
-function ensureReportDir(): void {
-  const dir = resolve(process.cwd(), REPORT_DIR);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
+let _lastReportPath = '';
 
 function formatViolationsMarkdown(violations: RuleViolation[]): string {
   if (violations.length === 0) {
@@ -48,11 +40,13 @@ export async function writeMarkdownReport(
   context: ReviewContext,
   violations: RuleViolation[],
   aiResponse: AIResponse | null,
-  targetBranch: string
+  targetBranch: string,
+  currentBranch: string = 'review'
 ): Promise<void> {
-  ensureReportDir();
+  ensureProjectDir();
 
-  const reportPath = resolve(process.cwd(), REPORT_DIR, REPORT_FILE);
+  const reportPath = reviewReportPath(currentBranch);
+  _lastReportPath = reportPath;
   const now = new Date().toISOString();
 
   let md = `# DiffGuard Review Report\n\n`;
@@ -124,5 +118,5 @@ export async function writeMarkdownReport(
 }
 
 export function getReportPath(): string {
-  return resolve(process.cwd(), REPORT_DIR, REPORT_FILE);
+  return _lastReportPath;
 }

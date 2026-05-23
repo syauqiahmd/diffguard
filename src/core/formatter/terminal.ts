@@ -76,10 +76,35 @@ export function printContextSummary(context: ReviewContext): void {
   console.log('');
 }
 
-export function printCostSummary(response: AIResponse): void {
+interface BranchSummary {
+  currentBranch: string;
+  targetBranch: string;
+  filesChanged: number;
+  commitsBehind: number;
+}
+
+export function printCostSummary(
+  response: AIResponse,
+  confidence: number | null = null,
+  branch?: BranchSummary
+): void {
   console.log('');
   console.log(chalk.dim('─'.repeat(40)));
+  if (branch) {
+    const behind = branch.commitsBehind > 0
+      ? chalk.yellow(` · ${branch.commitsBehind} behind`)
+      : '';
+    console.log(
+      `  ${chalk.cyan(branch.currentBranch)} ${chalk.dim('→')} ${chalk.dim('origin/')}${chalk.white(branch.targetBranch)}` +
+      `  ${chalk.dim(`${branch.filesChanged} file${branch.filesChanged === 1 ? '' : 's'}`)}${behind}`
+    );
+    console.log(chalk.dim('─'.repeat(40)));
+  }
   console.log(chalk.dim(`  Provider: ${response.provider} / ${response.model}`));
+  if (confidence !== null) {
+    const color = confidence >= 80 ? chalk.green : confidence >= 60 ? chalk.yellow : chalk.red;
+    console.log(`  Confidence:    ${color.bold(`${confidence}%`)}`);
+  }
   console.log(chalk.dim(`  Input tokens:  ${formatTokens(response.inputTokens)}`));
   console.log(chalk.dim(`  Output tokens: ${formatTokens(response.outputTokens)}`));
   console.log(chalk.bold.dim(`  Actual cost:   ${formatCost(response.cost)}`));
@@ -116,6 +141,26 @@ export function printReview(content: string): void {
   console.log('');
 }
 
+const TAG_COLORS: Record<string, (s: string) => string> = {
+  'api-break': chalk.yellow,
+  'data-loss': chalk.red,
+  'security':  chalk.red,
+  'async-bug': chalk.magenta,
+  'perf':      chalk.yellow,
+  'logic':     chalk.cyan,
+};
+
+function colorTag(note: string): string {
+  return note.replace(/\[([^\]]+)\]/, (_, tag: string) => {
+    const color = TAG_COLORS[tag.toLowerCase()] ?? chalk.dim;
+    return color(`[${tag}]`);
+  });
+}
+
+function capFix(snippet: string, max = 60): string {
+  return snippet.length > max ? snippet.slice(0, max - 3) + '...' : snippet;
+}
+
 export function printCommentReview(content: string): void {
   console.log('');
   const lines = content.split('\n');
@@ -126,17 +171,16 @@ export function printCommentReview(content: string): void {
       console.log('');
       console.log(chalk.bold.white(trimmed));
     } else if (trimmed.startsWith('fix:')) {
-      const snippet = trimmed.slice(4).trim();
+      const snippet = capFix(trimmed.slice(4).trim());
       console.log(`    ${chalk.dim('fix:')} ${chalk.green(snippet)}`);
     } else if (trimmed.includes(' -> ')) {
       const arrowIdx = trimmed.indexOf(' -> ');
       const loc = trimmed.slice(0, arrowIdx);
-      const note = trimmed.slice(arrowIdx + 4);
+      const note = colorTag(trimmed.slice(arrowIdx + 4));
       const locFormatted = loc.replace(/:(\d+)$/, (_, n) => chalk.dim(':') + chalk.yellow(n));
-      console.log(`  ${chalk.cyan(locFormatted)} ${chalk.dim('->')} ${chalk.white(note)}`);
-    } else {
-      console.log(chalk.dim('  ' + trimmed));
+      console.log(`  ${chalk.cyan(locFormatted)} ${chalk.dim('->')} ${note}`);
     }
+    // drop any line that doesn't match a known format (stray prose)
   }
   console.log('');
 }

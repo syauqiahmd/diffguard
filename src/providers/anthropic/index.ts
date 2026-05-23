@@ -47,6 +47,7 @@ export class AnthropicProvider implements AIProvider {
     const response = await this.client.messages.create({
       model,
       max_tokens: 4096,
+      temperature: 0,
       system: [
         {
           type: 'text',
@@ -89,6 +90,7 @@ export class AnthropicProvider implements AIProvider {
     const stream = await this.client.messages.stream({
       model,
       max_tokens: 4096,
+      temperature: 0,
       system: [
         {
           type: 'text',

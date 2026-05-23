@@ -1,35 +1,19 @@
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, appendFileSync, readFileSync } from 'fs';
 import type { UsageRecord } from '../../types/index.js';
 import { formatCost, formatTokens } from '../tokenizer/estimator.js';
-
-const USAGE_DIR = '.diffguard';
-const USAGE_FILE = 'usage.jsonl';
-
-function getUsagePath(): string {
-  return resolve(process.cwd(), USAGE_DIR, USAGE_FILE);
-}
-
-function ensureUsageDir(): void {
-  const dir = resolve(process.cwd(), USAGE_DIR);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
+import { usagePath, ensureProjectDir } from '../paths.js';
 
 export async function recordUsage(record: UsageRecord): Promise<void> {
-  ensureUsageDir();
-  const usagePath = getUsagePath();
-  const line = JSON.stringify(record) + '\n';
-  appendFileSync(usagePath, line, 'utf-8');
+  ensureProjectDir();
+  appendFileSync(usagePath(), JSON.stringify(record) + '\n', 'utf-8');
 }
 
 function readAllUsage(): UsageRecord[] {
-  const usagePath = getUsagePath();
-  if (!existsSync(usagePath)) return [];
+  const path = usagePath();
+  if (!existsSync(path)) return [];
 
   try {
-    const content = readFileSync(usagePath, 'utf-8');
+    const content = readFileSync(path, 'utf-8');
     return content
       .split('\n')
       .filter(Boolean)

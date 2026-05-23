@@ -25,15 +25,14 @@ export function selectModel(
   task: 'summarize' | 'review',
   configModel?: string
 ): string {
-  // If user has explicitly set a model in config, respect it
+  // Priority: CLI config > DIFFGUARD_MODEL env > mode-based default
   if (configModel) return configModel;
+  if (task === 'review' && process.env.DIFFGUARD_MODEL) return process.env.DIFFGUARD_MODEL;
 
   if (task === 'summarize') {
-    // Always use haiku for summarization — it's fast and cheap
     return 'claude-haiku-4-5';
   }
 
-  // For review tasks, select based on mode
   switch (mode) {
     case 'fast':
       return 'claude-haiku-4-5';

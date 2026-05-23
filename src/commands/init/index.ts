@@ -4,6 +4,7 @@ import { resolve } from 'path';
 import * as readline from 'readline';
 import { DEFAULT_CONFIG_YAML } from '../../core/config/defaults.js';
 import { printHeader, printSuccess, printWarning, printInfo } from '../../core/formatter/terminal.js';
+import { globalConfigPath, ensureProjectDir, projectDir } from '../../core/paths.js';
 import chalk from 'chalk';
 
 interface DetectedStack {
@@ -130,7 +131,6 @@ function buildConfigYaml(stack: DetectedStack): string {
     review: {
       mode: 'balanced',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
     },
     rules: {
       max_complexity: 15,
@@ -149,7 +149,7 @@ function buildConfigYaml(stack: DetectedStack): string {
   yaml += `review:\n`;
   yaml += `  mode: ${config.review.mode}\n`;
   yaml += `  provider: ${config.review.provider}\n`;
-  yaml += `  model: ${config.review.model}\n\n`;
+  yaml += `  # model: claude-haiku-4-5   # uncomment to override DIFFGUARD_MODEL env\n\n`;
   yaml += `rules:\n`;
   yaml += `  max_complexity: ${config.rules.max_complexity}\n`;
   yaml += `  forbidden:\n`;
@@ -214,10 +214,13 @@ async function runInit(): Promise<void> {
   }
   console.log('');
 
-  // Check for existing config
-  const configPath = resolve(cwd, 'diffguard.yaml');
-  if (existsSync(configPath)) {
-    printWarning('diffguard.yaml already exists.');
+  // Check for existing config (global dir first, then local fallback)
+  const configPath = globalConfigPath(cwd);
+  const localConfigPath = resolve(cwd, 'diffguard.yaml');
+  const configExists = existsSync(configPath) || existsSync(localConfigPath);
+
+  if (configExists) {
+    printWarning(`Config already exists for this project.`);
     const answer = await ask('  Overwrite? (y/N): ');
     if (!answer.toLowerCase().startsWith('y')) {
       printInfo('Keeping existing config.');
@@ -238,16 +241,28 @@ async function runInit(): Promise<void> {
     printInfo('Using default config...');
   }
 
-  // Write diffguard.yaml
+  // Write config to global dir
+  ensureProjectDir(cwd);
   writeFileSync(configPath, configContent, 'utf-8');
-  printSuccess(`Created diffguard.yaml`);
+  printSuccess(`Config saved → ${projectDir(cwd)}/config.yaml`);
 
-  // Write .env.example
+  // Write .env.example into the target project
   const envExamplePath = resolve(cwd, '.env.example');
-  const envExampleContent = `# DiffGuard Environment Variables
+  const envExampleContent = `# ── Required ──────────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY=your-key-here
 
-# Anthropic API key — get yours at https://console.anthropic.com
-ANTHROPIC_API_KEY=your_api_key_here
+# ── Model override (optional) ─────────────────────────────────────────────────
+# Model            Cost (input / output per 1M tokens)   Best for
+# ─────────────────────────────────────────────────────────────────
+# claude-haiku-4-5    $1.00 / $5.00   ← cheapest       --comment, quick checks
+# claude-sonnet-4-6   $3.00 / $15.00  ← default        --deep, balanced review
+# claude-opus-4-7     $5.00 / $25.00  ← best quality   critical reviews
+#
+DIFFGUARD_MODEL=claude-haiku-4-5
+
+# ── Budget limits (optional) ──────────────────────────────────────────────────
+DIFFGUARD_MAX_REVIEW_COST_USD=0.10
+DIFFGUARD_MAX_SESSION_COST_USD=2.00
 `;
 
   writeFileSync(envExamplePath, envExampleContent, 'utf-8');
@@ -267,7 +282,7 @@ ANTHROPIC_API_KEY=your_api_key_here
   console.log('');
   console.log(chalk.dim('  Next steps:'));
   console.log(chalk.dim('  1. Add your ANTHROPIC_API_KEY to .env'));
-  console.log(chalk.dim('  2. Review and customize diffguard.yaml'));
+  console.log(chalk.dim(`  2. Edit config: ${projectDir(cwd)}/config.yaml`));
   console.log(chalk.dim('  3. Run: diffguard review --target main'));
   console.log('');
 }

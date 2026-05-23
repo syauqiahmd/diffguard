@@ -3,12 +3,30 @@ import type { ChangedFile, GitAnalysis } from '../../types/index.js';
 
 const git = simpleGit(process.cwd());
 
-export async function fetchRemoteBranch(target: string): Promise<void> {
+export async function detectDefaultBranch(): Promise<string> {
+  try {
+    const ref = await git.raw(['symbolic-ref', 'refs/remotes/origin/HEAD']);
+    const branch = ref.trim().split('/').pop();
+    if (branch) return branch;
+  } catch {}
+
+  for (const candidate of ['main', 'master']) {
+    try {
+      await git.raw(['rev-parse', '--verify', `origin/${candidate}`]);
+      return candidate;
+    } catch {}
+  }
+
+  return 'main';
+}
+
+export async function fetchRemoteBranch(target: string, source?: string): Promise<void> {
   try {
     await git.fetch('origin', target);
+    if (source) await git.fetch('origin', source);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to fetch remote branch 'origin/${target}': ${message}`);
+    throw new Error(`Failed to fetch remote branch: ${message}`);
   }
 }
 
@@ -17,12 +35,12 @@ export async function getCurrentBranch(): Promise<string> {
   return branch.trim();
 }
 
-export async function getCommitsBehind(targetBranch: string): Promise<number> {
+export async function getCommitsBehind(targetBranch: string, sourceBranch?: string): Promise<number> {
+  // source ref: remote branch if specified, otherwise local HEAD
+  const sourceRef = sourceBranch ? `origin/${sourceBranch}` : 'HEAD';
   try {
     const result = await git.raw([
-      'rev-list',
-      '--count',
-      `HEAD..origin/${targetBranch}`,
+      'rev-list', '--count', `${sourceRef}..origin/${targetBranch}`,
     ]);
     return parseInt(result.trim(), 10) || 0;
   } catch {
@@ -32,61 +50,39 @@ export async function getCommitsBehind(targetBranch: string): Promise<number> {
 
 function parseGitDiffOutput(diffOutput: string): ChangedFile[] {
   const files: ChangedFile[] = [];
-
-  // Split by "diff --git" to get per-file sections
   const sections = diffOutput.split(/^(?=diff --git )/m).filter(Boolean);
 
   for (const section of sections) {
     const lines = section.split('\n');
     const firstLine = lines[0] ?? '';
-
-    // Extract file path from "diff --git a/path b/path"
     const diffMatch = firstLine.match(/^diff --git a\/(.+?) b\/(.+)$/);
     if (!diffMatch) continue;
 
     const filePath = diffMatch[2] ?? diffMatch[1] ?? '';
-
-    // Determine status from index/rename/new/deleted markers
     let status: ChangedFile['status'] = 'modified';
 
     for (const line of lines.slice(1, 6)) {
-      if (line.startsWith('new file mode')) {
-        status = 'added';
-        break;
-      }
-      if (line.startsWith('deleted file mode')) {
-        status = 'deleted';
-        break;
-      }
-      if (line.startsWith('rename ')) {
-        status = 'renamed';
-        break;
-      }
+      if (line.startsWith('new file mode')) { status = 'added'; break; }
+      if (line.startsWith('deleted file mode')) { status = 'deleted'; break; }
+      if (line.startsWith('rename ')) { status = 'renamed'; break; }
     }
 
-    files.push({
-      path: filePath,
-      status,
-      diff: section,
-    });
+    files.push({ path: filePath, status, diff: section });
   }
 
   return files;
 }
 
-export async function getChangedFiles(targetBranch: string): Promise<ChangedFile[]> {
+export async function getChangedFiles(targetBranch: string, sourceBranch?: string): Promise<ChangedFile[]> {
+  // source ref: remote branch if specified, otherwise local HEAD
+  const sourceRef = sourceBranch ? `origin/${sourceBranch}` : 'HEAD';
   try {
-    // Get the diff between current HEAD and origin/targetBranch
     const diffOutput = await git.raw([
       'diff',
-      `origin/${targetBranch}...HEAD`,
+      `origin/${targetBranch}...${sourceRef}`,
       '--diff-algorithm=histogram',
     ]);
-
-    if (!diffOutput.trim()) {
-      return [];
-    }
-
+    if (!diffOutput.trim()) return [];
     return parseGitDiffOutput(diffOutput);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -94,18 +90,14 @@ export async function getChangedFiles(targetBranch: string): Promise<ChangedFile
   }
 }
 
-export async function analyzeGit(targetBranch: string): Promise<GitAnalysis> {
-  const [currentBranch, changedFiles, commitsBehind] = await Promise.all([
-    getCurrentBranch(),
-    getChangedFiles(targetBranch),
-    getCommitsBehind(targetBranch),
+export async function analyzeGit(targetBranch: string, sourceBranch?: string): Promise<GitAnalysis> {
+  // Display name: provided branch name or local branch name
+  const currentBranch = sourceBranch ?? await getCurrentBranch();
+
+  const [changedFiles, commitsBehind] = await Promise.all([
+    getChangedFiles(targetBranch, sourceBranch),
+    getCommitsBehind(targetBranch, sourceBranch),
   ]);
 
-  return {
-    targetBranch,
-    currentBranch,
-    changedFiles,
-    commitsBehind,
-    isBehind: commitsBehind > 0,
-  };
+  return { targetBranch, currentBranch, changedFiles, commitsBehind, isBehind: commitsBehind > 0 };
 }

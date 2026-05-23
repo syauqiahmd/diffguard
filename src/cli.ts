@@ -3,6 +3,8 @@ import { program } from 'commander';
 import { reviewCommand } from './commands/review/index.js';
 import { initCommand } from './commands/init/index.js';
 import { usageCommand } from './commands/usage/index.js';
+import { prCommand } from './commands/pr/index.js';
+import { projectsCommand } from './commands/projects/index.js';
 
 program
   .name('diffguard')
@@ -12,5 +14,7 @@ program
 program.addCommand(reviewCommand);
 program.addCommand(initCommand);
 program.addCommand(usageCommand);
+program.addCommand(prCommand);
+program.addCommand(projectsCommand);
 
 program.parse();

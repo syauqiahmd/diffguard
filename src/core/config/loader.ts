@@ -3,6 +3,7 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
+import { globalConfigPath } from '../paths.js';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import type { DiffguardConfig } from '../../types/index.js';
@@ -51,7 +52,7 @@ const DEFAULT_CONFIG: DiffguardConfig = {
   review: {
     mode: 'balanced',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
+    // no default model — lets DIFFGUARD_MODEL env var take effect
   },
   rules: {
     max_complexity: 15,
@@ -67,28 +68,29 @@ const DEFAULT_CONFIG: DiffguardConfig = {
 
 let _config: DiffguardConfig | null = null;
 
-export function loadConfig(): DiffguardConfig {
-  if (_config) return _config;
-
-  const configPath = resolve(process.cwd(), 'diffguard.yaml');
-
-  if (!existsSync(configPath)) {
-    _config = DEFAULT_CONFIG;
-    return _config;
-  }
-
+function tryLoadYaml(configPath: string): DiffguardConfig | null {
+  if (!existsSync(configPath)) return null;
   try {
     const raw = readFileSync(configPath, 'utf-8');
     const parsed = parseYaml(raw) as unknown;
-    const validated = DiffguardConfigSchema.parse(parsed);
-    _config = validated as DiffguardConfig;
-    return _config;
+    return DiffguardConfigSchema.parse(parsed) as DiffguardConfig;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`Warning: Failed to parse diffguard.yaml: ${message}\nUsing defaults.\n`);
-    _config = DEFAULT_CONFIG;
-    return _config;
+    process.stderr.write(`Warning: Failed to parse ${configPath}: ${message}\nUsing defaults.\n`);
+    return null;
   }
+}
+
+export function loadConfig(): DiffguardConfig {
+  if (_config) return _config;
+
+  // Priority: global project config → local diffguard.yaml → defaults
+  _config =
+    tryLoadYaml(globalConfigPath()) ??
+    tryLoadYaml(resolve(process.cwd(), 'diffguard.yaml')) ??
+    DEFAULT_CONFIG;
+
+  return _config;
 }
 
 export function getEnv(key: string): string | undefined {

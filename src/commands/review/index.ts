@@ -1,11 +1,13 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import { loadConfig } from '../../core/config/loader.js';
-import { fetchRemoteBranch, analyzeGit } from '../../core/git/analyzer.js';
+import { fetchRemoteBranch, analyzeGit, detectDefaultBranch } from '../../core/git/analyzer.js';
 import { checkBranchStatus } from '../../core/git/branch-intelligence.js';
 import { runAllRules } from '../../core/rules/engine.js';
 import { buildContext } from '../../core/context/builder.js';
 import { getProvider, selectModel } from '../../core/ai/router.js';
+import { compressRelatedFiles } from '../../core/context/compressor.js';
+import { getCached, setCached } from '../../core/cache/index.js';
 import { recordUsage } from '../../core/budget/tracker.js';
 import { writeMarkdownReport, getReportPath } from '../../core/formatter/markdown.js';
 import {
@@ -18,19 +20,19 @@ import {
   printCostSummary,
   printReview,
   printCommentReview,
-  printBranchInfo,
 } from '../../core/formatter/terminal.js';
 import type { AIResponse } from '../../types/index.js';
 
 interface ReviewOptions {
-  target: string;
+  target?: string;   // target branch (default: auto-detect main/master)
+  branch?: string;   // source branch (default: local HEAD)
   deep: boolean;
-  comment: boolean;
   mode?: 'fast' | 'balanced' | 'deep';
   provider?: string;
   output?: 'markdown' | 'json';
   ai: boolean;
   budget?: string;
+  noCache: boolean;
 }
 
 function buildSystemPrompt(mode: 'comment' | 'standard'): string {
@@ -42,15 +44,25 @@ How to find line numbers:
 - Added lines (+): count from NEW_START. Removed lines (-): count from OLD_START.
 - Omit line number only if truly indeterminate.
 
+Impact tags — pick exactly one per comment:
+[api-break]  breaks API contract or response shape
+[data-loss]  data not persisted, lost, or corrupted
+[security]   auth bypass, injection, secret exposure
+[async-bug]  missing await, race condition, unhandled rejection
+[perf]       unbounded query, N+1, memory risk
+[logic]      wrong conditional, off-by-one, bad fallback
+
 Output format per issue (two lines max):
-file.ext:line -> short note (≤7 words)
-  fix: one-line code fix or snippet
+file.ext:line -> [tag] short note (≤7 words)
+  fix: short code fix
 
 Rules:
-- Only include \`fix:\` when there is a concrete, short fix (1-2 lines). Skip it otherwise.
-- No prose, no explanations beyond the note itself
-- Flag every real problem: bugs, removed safety code, bad async, data integrity, security
-- Always end with: Summary: <one sentence — what changed and verdict>`;
+- Every comment line MUST start with file.ext:line -> or file.ext ->
+- Only include \`fix:\` when there is a concrete fix. Keep it under 60 chars — trim with ... if needed.
+- No prose, no extra explanation lines outside this format
+- Always end with Summary then Confidence on separate lines:
+  Summary: <one sentence — what changed and verdict>
+  Confidence: N% (how certain based on diff clarity and context available)`;
   }
 
   return `You are an expert backend code reviewer. Be extremely concise.
@@ -68,12 +80,22 @@ RECS
 1. recommendation (max 3)
 
 Summary: one sentence verdict
+Confidence: N%
 
 Rules:
 - Omit sections with nothing to say
 - Only add \`fix:\` when the fix is short and concrete
-- No prose paragraphs, no "None identified"`;
+- No prose paragraphs, no "None identified"
+- Always end with Summary then Confidence (rate based on diff clarity and context available)`;
 
+}
+
+function extractConfidence(content: string): { content: string; confidence: number | null } {
+  const match = content.match(/\bConfidence:\s*(\d{1,3})%/i);
+  if (!match) return { content, confidence: null };
+  const confidence = Math.min(100, Math.max(0, parseInt(match[1]!, 10)));
+  const cleaned = content.replace(/\n?Confidence:\s*\d{1,3}%[^\n]*/i, '').trimEnd();
+  return { content: cleaned, confidence };
 }
 
 function buildUserPrompt(
@@ -149,6 +171,10 @@ function buildUserPrompt(
 async function runReview(options: ReviewOptions): Promise<void> {
   const config = loadConfig();
 
+  // Resolve target branch — auto-detect if not provided
+  const target = options.target ?? await detectDefaultBranch();
+  const isComment = !options.deep;
+
   // Override config with CLI options
   if (options.mode) config.review.mode = options.mode;
   if (options.provider) config.review.provider = options.provider;
@@ -156,7 +182,11 @@ async function runReview(options: ReviewOptions): Promise<void> {
   const effectiveMode = options.deep ? 'deep' : (options.mode ?? config.review.mode);
   if (options.deep) config.review.mode = 'deep';
 
-  const budgetLimit = options.budget ? parseFloat(options.budget) : null;
+  const budgetLimit = options.budget
+    ? parseFloat(options.budget)
+    : process.env.DIFFGUARD_MAX_REVIEW_COST_USD
+      ? parseFloat(process.env.DIFFGUARD_MAX_REVIEW_COST_USD)
+      : null;
   // Commander transforms --no-ai into options.ai === false
   const skipAi = options.ai === false;
 
@@ -165,8 +195,11 @@ async function runReview(options: ReviewOptions): Promise<void> {
   // Step 1: Fetch remote and analyze git
   const fetchSpinner = ora('Fetching remote branch...').start();
   try {
-    await fetchRemoteBranch(options.target);
-    fetchSpinner.succeed(`Fetched origin/${options.target}`);
+    await fetchRemoteBranch(target, options.branch);
+    const fetched = options.branch
+      ? `origin/${target} + origin/${options.branch}`
+      : `origin/${target}`;
+    fetchSpinner.succeed(`Fetched ${fetched}`);
   } catch (err) {
     fetchSpinner.fail(`Failed to fetch remote branch`);
     const message = err instanceof Error ? err.message : String(err);
@@ -177,7 +210,7 @@ async function runReview(options: ReviewOptions): Promise<void> {
   const analyzeSpinner = ora('Analyzing git diff...').start();
   let gitAnalysis: Awaited<ReturnType<typeof analyzeGit>>;
   try {
-    gitAnalysis = await analyzeGit(options.target);
+    gitAnalysis = await analyzeGit(target, options.branch);
     analyzeSpinner.succeed(`Analysis complete`);
   } catch (err) {
     analyzeSpinner.fail('Git analysis failed');
@@ -186,13 +219,7 @@ async function runReview(options: ReviewOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Step 2: Print branch info
-  printBranchInfo(
-    gitAnalysis.currentBranch,
-    options.target,
-    gitAnalysis.changedFiles.length,
-    gitAnalysis.commitsBehind
-  );
+  // Branch info is shown in the footer alongside cost summary
 
   // Step 3: Branch warnings
   const warnings = checkBranchStatus(gitAnalysis);
@@ -225,7 +252,28 @@ async function runReview(options: ReviewOptions): Promise<void> {
 
   printContextSummary(context);
 
-  // Step 6: Check budget
+  // Step 6: Compress large related files (Phase 5)
+  if (!skipAi && context.relatedFiles.length > 0 && context.totalTokens > 4_000) {
+    const compressSpinner = ora('Compressing context...').start();
+    try {
+      const provider = getProvider(config);
+      const { files: compressed, savedTokens } = await compressRelatedFiles(
+        context.relatedFiles,
+        provider
+      );
+      context.relatedFiles = compressed;
+      if (savedTokens > 0) {
+        context.totalTokens = Math.max(0, context.totalTokens - savedTokens);
+        compressSpinner.succeed(`Context compressed — saved ~${savedTokens.toLocaleString()} tokens`);
+      } else {
+        compressSpinner.succeed('Context ready (no compression needed)');
+      }
+    } catch {
+      compressSpinner.warn('Compression skipped');
+    }
+  }
+
+  // Step 7: Check budget
   let runAi = !skipAi;
 
   if (budgetLimit !== null && context.estimatedCost > budgetLimit) {
@@ -236,68 +284,83 @@ async function runReview(options: ReviewOptions): Promise<void> {
     runAi = false;
   }
 
-  // Step 7: AI review
+  // Step 8: AI review
   let aiResponse: AIResponse | null = null;
+  let fromCache = false;
 
   if (runAi) {
     const model = selectModel(effectiveMode, 'review', config.review.model);
-    const aiSpinner = ora(`Running AI review (${model})...`).start();
+    const systemPrompt = buildSystemPrompt(isComment ? 'comment' : 'standard');
+    const userPrompt = buildUserPrompt(context, target, gitAnalysis.currentBranch, gitAnalysis.commitsBehind);
+    const cacheMode = isComment ? 'comment' : 'standard';
 
-    try {
-      const provider = getProvider(config);
-      const systemPrompt = buildSystemPrompt(options.comment ? 'comment' : 'standard');
-      const userPrompt = buildUserPrompt(
-        context,
-        options.target,
-        gitAnalysis.currentBranch,
-        gitAnalysis.commitsBehind
-      );
+    // Check cache first (skip if --no-cache)
+    if (!options.noCache) {
+      const cached = getCached(userPrompt, model, cacheMode);
+      if (cached) {
+        aiResponse = cached;
+        fromCache = true;
+        printSuccess(`AI review loaded from cache`);
+      }
+    }
 
-      aiResponse = await provider.complete(userPrompt, systemPrompt, model);
-      aiSpinner.succeed(`AI review complete`);
-    } catch (err) {
-      aiSpinner.fail('AI review failed');
-      const message = err instanceof Error ? err.message : String(err);
-      printError(`AI error: ${message}`);
-
-      if (message.includes('ANTHROPIC_API_KEY')) {
-        printError('Set ANTHROPIC_API_KEY in your .env file to enable AI reviews.');
+    if (!aiResponse) {
+      const aiSpinner = ora(`Running AI review (${model})...`).start();
+      try {
+        const provider = getProvider(config);
+        aiResponse = await provider.complete(userPrompt, systemPrompt, model);
+        setCached(userPrompt, model, cacheMode, aiResponse);
+        aiSpinner.succeed(`AI review complete`);
+      } catch (err) {
+        aiSpinner.fail('AI review failed');
+        const message = err instanceof Error ? err.message : String(err);
+        printError(`AI error: ${message}`);
+        if (message.includes('ANTHROPIC_API_KEY')) {
+          printError('Set ANTHROPIC_API_KEY in your .env file to enable AI reviews.');
+        }
       }
     }
   } else {
     printWarning('AI review skipped (--no-ai flag set)');
   }
 
-  // Step 8: Print results
+  // Step 9: Print results
   if (aiResponse) {
-    if (options.comment) {
-      printCommentReview(aiResponse.content);
+    const { content: reviewContent, confidence } = extractConfidence(aiResponse.content);
+    if (isComment) {
+      printCommentReview(reviewContent);
     } else {
-      printReview(aiResponse.content);
+      printReview(reviewContent);
     }
-    printCostSummary(aiResponse);
+    printCostSummary(aiResponse, confidence, {
+      currentBranch: gitAnalysis.currentBranch,
+      targetBranch: target,
+      filesChanged: gitAnalysis.changedFiles.length,
+      commitsBehind: gitAnalysis.commitsBehind,
+    });
 
-    // Record usage
-    const usageRecord = {
-      date: new Date().toISOString(),
-      branch: gitAnalysis.currentBranch,
-      provider: aiResponse.provider,
-      model: aiResponse.model,
-      inputTokens: aiResponse.inputTokens,
-      outputTokens: aiResponse.outputTokens,
-      cost: aiResponse.cost,
-    };
-    await recordUsage(usageRecord);
+    // Only record usage for live calls, not cache hits
+    if (!fromCache) {
+      await recordUsage({
+        date: new Date().toISOString(),
+        branch: gitAnalysis.currentBranch,
+        provider: aiResponse.provider,
+        model: aiResponse.model,
+        inputTokens: aiResponse.inputTokens,
+        outputTokens: aiResponse.outputTokens,
+        cost: aiResponse.cost,
+      });
+    }
   }
 
-  // Step 9: Output formats
+  // Step 10: Output formats
   if (options.output === 'markdown') {
-    await writeMarkdownReport(context, violations, aiResponse, options.target);
+    await writeMarkdownReport(context, violations, aiResponse, target, gitAnalysis.currentBranch);
     printSuccess(`Markdown report written to ${getReportPath()}`);
   } else if (options.output === 'json') {
     const report = {
       timestamp: new Date().toISOString(),
-      targetBranch: options.target,
+      targetBranch: target,
       currentBranch: gitAnalysis.currentBranch,
       changedFiles: gitAnalysis.changedFiles.length,
       violations,
@@ -333,9 +396,10 @@ async function runReview(options: ReviewOptions): Promise<void> {
 
 export const reviewCommand = new Command('review')
   .description('Review changes against a target branch')
-  .requiredOption('-t, --target <branch>', 'Target branch to compare against (e.g. main)')
-  .option('--deep', 'Thorough review, compact output', false)
-  .option('--comment', 'Inline comments only: file:line -> note', false)
+  .option('-t, --target <branch>', 'Target branch to compare against (default: auto-detect main/master)')
+  .option('-b, --branch <branch>', 'Source branch to review (default: current local branch)')
+  .option('--deep', 'Structured deep review instead of default inline comments', false)
+  .option('--no-cache', 'Skip cache and force a fresh AI call')
   .option(
     '--mode <mode>',
     'Review mode: fast | balanced | deep',

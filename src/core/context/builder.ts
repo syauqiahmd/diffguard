@@ -1,7 +1,43 @@
 import { existsSync, readFileSync } from 'fs';
-import { resolve, dirname, basename, extname } from 'path';
+import { resolve, dirname, basename, extname, join } from 'path';
 import type { ChangedFile, ContextFile, DiffguardConfig, ReviewContext, RuleViolation } from '../../types/index.js';
 import { estimateTokens, estimateCost } from '../tokenizer/estimator.js';
+
+const RESOLVE_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+
+function resolveImport(importedPath: string): string | null {
+  if (existsSync(importedPath)) return importedPath;
+  for (const ext of RESOLVE_EXTS) {
+    if (existsSync(importedPath + ext)) return importedPath + ext;
+  }
+  for (const ext of RESOLVE_EXTS) {
+    const idx = join(importedPath, `index${ext}`);
+    if (existsSync(idx)) return idx;
+  }
+  return null;
+}
+
+function findImportedFiles(changedFile: ChangedFile): string[] {
+  if (changedFile.status === 'deleted') return [];
+  const absPath = resolve(process.cwd(), changedFile.path);
+  if (!existsSync(absPath)) return [];
+  try {
+    const content = readFileSync(absPath, 'utf-8');
+    const dir = dirname(absPath);
+    const found = new Set<string>();
+    // Match: from './x', require('./x'), import './x'
+    const re = /(?:from|require|import)\s*\(?\s*['"](\.[^'"]+)['"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      if (!m[1]) continue;
+      const resolved = resolveImport(resolve(dir, m[1]));
+      if (resolved) found.add(resolved);
+    }
+    return [...found];
+  } catch {
+    return [];
+  }
+}
 
 const MAX_RELATED_FILES = 10;
 const MAX_FILE_SIZE_BYTES = 50_000; // 50KB cap per file
@@ -116,10 +152,30 @@ export async function buildContext(
   const relatedFiles: ContextFile[] = [];
   const alreadyIncluded = new Set<string>(changedFiles.map((f) => f.path));
 
-  // Collect related files for each changed file
+  // Collect related files: imports first (actual call graph), then sibling patterns
   for (const changedFile of changedFiles) {
     if (relatedFiles.length >= MAX_RELATED_FILES) break;
 
+    // 1. Import-resolved files (highest relevance)
+    for (const absPath of findImportedFiles(changedFile)) {
+      if (relatedFiles.length >= MAX_RELATED_FILES) break;
+      const relativePath = absPath.replace(process.cwd() + '/', '');
+      if (alreadyIncluded.has(relativePath)) continue;
+      if (isIgnored(relativePath, ignore)) continue;
+      try {
+        const content = readFileSync(absPath, 'utf-8');
+        if (content.length > MAX_FILE_SIZE_BYTES) continue;
+        relatedFiles.push({
+          path: relativePath,
+          content,
+          reason: `Imported by ${changedFile.path}`,
+          tokenEstimate: estimateTokens(content),
+        });
+        alreadyIncluded.add(relativePath);
+      } catch { /* skip unreadable */ }
+    }
+
+    // 2. Sibling pattern files (naming convention)
     const related = findRelatedFiles(changedFile, ignore, alreadyIncluded);
     const remaining = MAX_RELATED_FILES - relatedFiles.length;
     relatedFiles.push(...related.slice(0, remaining));
