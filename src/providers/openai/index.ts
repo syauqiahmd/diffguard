@@ -78,6 +78,7 @@ export class OpenAIProvider implements AIProvider {
       model,
       temperature: 0,
       max_tokens: 4096,
+      stream_options: { include_usage: true },
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: prompt },

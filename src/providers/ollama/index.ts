@@ -47,8 +47,8 @@ export class OllamaProvider implements AIProvider {
         message.includes('ENOTFOUND') ||
         message.includes('ETIMEDOUT') ||
         message.includes('EHOSTUNREACH') ||
-        message.includes('fetch failed') ||
-        message.includes('connect')
+        message.includes('ECONNRESET') ||
+        message.includes('fetch failed')
       ) {
         throw new Error('Ollama is not running. Start it with: ollama serve');
       }
