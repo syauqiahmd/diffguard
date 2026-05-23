@@ -44,6 +44,13 @@ export interface AIResponse {
   provider: string;
 }
 
+export interface SuppressRule {
+  file?: string;      // substring match on file path
+  line?: number;      // specific line number
+  contains?: string;  // substring match on finding note text
+  tag?: string;       // impact tag to suppress (api-break, data-loss, etc.)
+}
+
 export interface DiffguardConfig {
   version: number;
   review: {
@@ -61,6 +68,7 @@ export interface DiffguardConfig {
     controller_must_not_contain_business_logic?: boolean;
   };
   ignore?: string[];
+  suppress?: SuppressRule[];
 }
 
 export interface UsageRecord {

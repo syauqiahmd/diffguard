@@ -161,8 +161,9 @@ function capFix(snippet: string, max = 60): string {
   return snippet.length > max ? snippet.slice(0, max - 3) + '...' : snippet;
 }
 
-export function printCommentReview(content: string): void {
+export function printCommentReview(content: string, suppressedCount = 0): void {
   console.log('');
+  let droppedLines = 0;
   const lines = content.split('\n');
   for (const line of lines) {
     const trimmed = line.trim().replace(/^[-*•]\s+/, '');
@@ -179,9 +180,18 @@ export function printCommentReview(content: string): void {
       const note = colorTag(trimmed.slice(arrowIdx + 4));
       const locFormatted = loc.replace(/:(\d+)$/, (_, n) => chalk.dim(':') + chalk.yellow(n));
       console.log(`  ${chalk.cyan(locFormatted)} ${chalk.dim('->')} ${note}`);
+    } else {
+      droppedLines++;
     }
-    // drop any line that doesn't match a known format (stray prose)
   }
+
+  const notes: string[] = [];
+  if (droppedLines > 0) notes.push(`${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered`);
+  if (suppressedCount > 0) notes.push(`${suppressedCount} finding${suppressedCount === 1 ? '' : 's'} suppressed`);
+  if (notes.length > 0) {
+    process.stdout.write(chalk.dim(`  (${notes.join(' · ')})\n`));
+  }
+
   console.log('');
 }
 

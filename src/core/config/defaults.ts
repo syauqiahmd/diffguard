@@ -26,4 +26,11 @@ ignore:
   - .git/
   - "*.min.js"
   - "*.lock"
+
+# suppress:
+#   - file: src/core/formatter/terminal.ts   # never flag this file
+#   - contains: "thread-safe"                # suppress any finding with this text
+#   - tag: perf                              # suppress all [perf] findings
+#   - file: src/utils/legacy.ts
+#     tag: logic                             # suppress [logic] in one specific file
 `;
