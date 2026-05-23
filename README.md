@@ -16,27 +16,24 @@ cd diffguard
 ./install.sh
 ```
 
-The script installs dependencies, builds, and links `diffguard` as a global command. Run it once — re-run after pulling updates.
+The script installs dependencies, builds, links `diffguard` as a global command, and prompts you to choose a default provider, enter API keys, and pick a default model. All credentials are saved to the diffguard `.env` — run it once, re-run after pulling updates.
 
-Add your API key to the diffguard `.env`:
-
-```bash
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> /path/to/diffguard/.env
-echo 'DIFFGUARD_MODEL=claude-haiku-4-5' >> /path/to/diffguard/.env
-```
+You can fill credentials for multiple providers or skip any you don't plan to use. Keys for non-default providers are optional and can be added later.
 
 ---
 
 ## Setup in your project
 
-Run this **inside the project you want to review**:
+Run this **inside the project you want to review** — required before any other command:
 
 ```bash
 cd /path/to/your-project
 diffguard init
 ```
 
-Detects your stack (Node.js / Go, framework, ORM, validation library), saves config to `~/.diffguard/projects/<your-project>/config.yaml`, and writes `.env.example` into your project.
+Detects your stack (Node.js / Go, framework, ORM, validation library) and saves config to `~/.diffguard/projects/<your-project>/config.yaml`. Running `review`, `pr`, or `usage` without `init` will show an error and stop.
+
+The config picks up your default provider from the global `.env` set during install, so you don't need to reconfigure credentials per project.
 
 ---
 
@@ -199,26 +196,62 @@ ignore:
 
 ---
 
+## Providers
+
+Diffguard supports four AI providers. Set `DIFFGUARD_PROVIDER` in your `.env` to choose.
+
+| Provider | Key needed | Cheapest model | Notes |
+|---|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` — $1/$5 per 1M | Default |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` — $0.15/$0.60 per 1M | |
+| `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` — $0.10/$0.40 per 1M | |
+| `ollama` | none | any local model | Free, fully offline |
+
+You can also switch provider per-project in `config.yaml`:
+
+```yaml
+review:
+  provider: openai
+  model: gpt-4o-mini
+```
+
+Or per-run with the existing `--provider` flag:
+
+```bash
+diffguard review --provider gemini
+```
+
+---
+
 ## Environment variables
 
 Set in the diffguard `.env` file:
 
 ```env
-# Required
-ANTHROPIC_API_KEY=sk-ant-...
+# Provider — anthropic | openai | gemini | ollama (default: anthropic)
+DIFFGUARD_PROVIDER=anthropic
 
-# Model — controls cost for every review
-# claude-haiku-4-5    $1/$5 per 1M tokens   ← cheapest, good for daily use
-# claude-sonnet-4-6   $3/$15 per 1M tokens  ← balanced (default when unset)
-# claude-opus-4-7     $5/$25 per 1M tokens  ← best quality
+# API key for your chosen provider
+ANTHROPIC_API_KEY=sk-ant-...
+# OPENAI_API_KEY=sk-...
+# GEMINI_API_KEY=...
+
+# Model override (optional — auto-selected by provider + mode if unset)
+# Anthropic:  claude-haiku-4-5 / claude-sonnet-4-6 / claude-opus-4-7
+# OpenAI:     gpt-4o-mini / gpt-4o / gpt-4.1
+# Gemini:     gemini-2.0-flash / gemini-1.5-pro
+# Ollama:     llama3.2 / qwen2.5-coder / mistral / any installed model
 DIFFGUARD_MODEL=claude-haiku-4-5
 
 # Budget caps
 DIFFGUARD_MAX_REVIEW_COST_USD=0.10
 DIFFGUARD_MAX_SESSION_COST_USD=2.00
+
+# Ollama base URL (default: http://localhost:11434)
+# OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Model priority: `config.yaml review.model` → `DIFFGUARD_MODEL` env → auto-select by mode.
+Priority order: `--provider` flag > `config.yaml review.provider` > `DIFFGUARD_PROVIDER` env > `anthropic`.
 
 ---
 
@@ -268,7 +301,7 @@ Context compression               (large files summarized by haiku)
 ↓
 Review cache check                (skip AI if same diff seen in last 24h)
 ↓
-AI review (Anthropic, temperature=0 for consistency)
+AI review (Anthropic / OpenAI / Gemini / Ollama, temperature=0 for consistency)
 ↓
 Formatted output with impact tags + confidence score
 ```
@@ -278,6 +311,6 @@ Formatted output with impact tags + confidence score
 ## Tech stack
 
 - TypeScript ESM, Node.js 22+
-- `@anthropic-ai/sdk` — direct SDK, prompt caching on every call, `temperature: 0`
+- `@anthropic-ai/sdk`, `openai`, `@google/genai` — direct SDKs, prompt caching (Anthropic), `temperature: 0`
 - `simple-git`, `commander`, `zod`, `chalk`, `ora`, `cli-table3`
 - No full repo upload — only diffs + minimal related file context
