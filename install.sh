@@ -72,7 +72,14 @@ setup_env() {
   echo "    3) gemini     (gemini-2.0-flash  — cheapest)"
   echo "    4) ollama     (local, free       — requires ollama running)"
   echo ""
-  read -rp "  Default provider [1-4, default: 1]: " PROVIDER_NUM
+  while true; do
+    read -rp "  Default provider [1-4, default: 1]: " PROVIDER_NUM
+    PROVIDER_NUM="${PROVIDER_NUM:-1}"
+    case "$PROVIDER_NUM" in
+      1|2|3|4) break ;;
+      *) echo "  ⚠  Enter a number between 1 and 4." ;;
+    esac
+  done
 
   case "$PROVIDER_NUM" in
     2) DEFAULT_PROVIDER="openai"    ;;
@@ -97,11 +104,15 @@ setup_env() {
     if [ "$REQUIRED" = "required" ]; then
       while true; do
         read -rp "  $LABEL API key: " RESULT
+        RESULT="${RESULT#"${RESULT%%[![:space:]]*}"}"
+        RESULT="${RESULT%"${RESULT##*[![:space:]]}"}"
         [ -n "$RESULT" ] && break
         echo "  ⚠  Required for default provider. Press Ctrl+C to abort."
       done
     else
       read -rp "  $LABEL API key (Enter to skip): " RESULT
+      RESULT="${RESULT#"${RESULT%%[![:space:]]*}"}"
+      RESULT="${RESULT%"${RESULT##*[![:space:]]}"}"
     fi
 
     printf '%s' "$RESULT"

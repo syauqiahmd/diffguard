@@ -44,6 +44,9 @@ export class OllamaProvider implements AIProvider {
       const message = err instanceof Error ? err.message : String(err);
       if (
         message.includes('ECONNREFUSED') ||
+        message.includes('ENOTFOUND') ||
+        message.includes('ETIMEDOUT') ||
+        message.includes('EHOSTUNREACH') ||
         message.includes('fetch failed') ||
         message.includes('connect')
       ) {
