@@ -12,6 +12,7 @@ import {
   printCostSummary,
   printReview,
 } from '../../core/formatter/terminal.js';
+import { requireInit } from '../../core/init-guard.js';
 import type { AIResponse } from '../../types/index.js';
 
 interface PrOptions {
@@ -81,6 +82,7 @@ function buildUserPrompt(
 }
 
 async function runPr(options: PrOptions): Promise<void> {
+  requireInit();
   const config = loadConfig();
 
   const target = options.target ?? (await detectDefaultBranch());

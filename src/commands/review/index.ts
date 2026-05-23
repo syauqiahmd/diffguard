@@ -21,6 +21,7 @@ import {
   printReview,
   printCommentReview,
 } from '../../core/formatter/terminal.js';
+import { requireInit } from '../../core/init-guard.js';
 import type { AIResponse } from '../../types/index.js';
 
 interface ReviewOptions {
@@ -169,6 +170,7 @@ function buildUserPrompt(
 }
 
 async function runReview(options: ReviewOptions): Promise<void> {
+  requireInit();
   const config = loadConfig();
 
   // Resolve target branch — auto-detect if not provided

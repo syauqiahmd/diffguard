@@ -1,48 +1,59 @@
 import type { AIProvider, DiffguardConfig } from '../../types/index.js';
 import { AnthropicProvider } from '../../providers/anthropic/index.js';
+import { OpenAIProvider } from '../../providers/openai/index.js';
+import { GeminiProvider } from '../../providers/gemini/index.js';
+import { OllamaProvider } from '../../providers/ollama/index.js';
 
 let _provider: AIProvider | null = null;
 
 export function getProvider(config: DiffguardConfig): AIProvider {
-  const providerName = config.review.provider ?? 'anthropic';
+  // Priority: config.yaml > DIFFGUARD_PROVIDER env > 'anthropic'
+  const providerName =
+    config.review.provider ??
+    process.env.DIFFGUARD_PROVIDER ??
+    'anthropic';
 
-  if (_provider && _provider.name === providerName) {
-    return _provider;
+  if (_provider && _provider.name === providerName) return _provider;
+
+  switch (providerName) {
+    case 'anthropic': _provider = new AnthropicProvider(); break;
+    case 'openai':    _provider = new OpenAIProvider();    break;
+    case 'gemini':    _provider = new GeminiProvider();    break;
+    case 'ollama':    _provider = new OllamaProvider();    break;
+    default:
+      throw new Error(
+        `Unknown provider: '${providerName}'. Supported: anthropic, openai, gemini, ollama`
+      );
   }
 
-  if (providerName === 'anthropic') {
-    _provider = new AnthropicProvider();
-    return _provider;
-  }
-
-  throw new Error(
-    `Unknown AI provider: '${providerName}'. Currently supported providers: anthropic`
-  );
+  return _provider;
 }
+
+// Default models per provider × mode
+const MODEL_DEFAULTS: Record<string, Record<string, string>> = {
+  anthropic: { fast: 'claude-haiku-4-5',  balanced: 'claude-sonnet-4-6', deep: 'claude-sonnet-4-6' },
+  openai:    { fast: 'gpt-4o-mini',        balanced: 'gpt-4o',            deep: 'gpt-4o'            },
+  gemini:    { fast: 'gemini-2.0-flash',   balanced: 'gemini-2.0-flash',  deep: 'gemini-1.5-pro'    },
+  ollama:    { fast: 'llama3.2',           balanced: 'llama3.2',          deep: 'llama3.2'           },
+};
 
 export function selectModel(
   mode: string,
   task: 'summarize' | 'review',
   configModel?: string
 ): string {
-  // Priority: CLI config > DIFFGUARD_MODEL env > mode-based default
+  // Priority: explicit config model > DIFFGUARD_MODEL env > provider+mode default
   if (configModel) return configModel;
   if (task === 'review' && process.env.DIFFGUARD_MODEL) return process.env.DIFFGUARD_MODEL;
 
+  const provider = process.env.DIFFGUARD_PROVIDER ?? 'anthropic';
+
   if (task === 'summarize') {
-    return 'claude-haiku-4-5';
+    // Always use the cheapest model for summarization
+    return MODEL_DEFAULTS[provider]?.fast ?? MODEL_DEFAULTS.anthropic!.fast!;
   }
 
-  switch (mode) {
-    case 'fast':
-      return 'claude-haiku-4-5';
-    case 'balanced':
-      return 'claude-sonnet-4-6';
-    case 'deep':
-      return 'claude-sonnet-4-6';
-    default:
-      return 'claude-sonnet-4-6';
-  }
+  return MODEL_DEFAULTS[provider]?.[mode] ?? MODEL_DEFAULTS[provider]?.balanced ?? 'claude-sonnet-4-6';
 }
 
 export function resetProvider(): void {

@@ -130,7 +130,7 @@ function buildConfigYaml(stack: DetectedStack): string {
     version: 1,
     review: {
       mode: 'balanced',
-      provider: 'anthropic',
+      provider: process.env.DIFFGUARD_PROVIDER ?? 'anthropic',
     },
     rules: {
       max_complexity: 15,
@@ -268,22 +268,12 @@ DIFFGUARD_MAX_SESSION_COST_USD=2.00
   writeFileSync(envExamplePath, envExampleContent, 'utf-8');
   printSuccess('Created .env.example');
 
-  // Check if .env exists
-  const envPath = resolve(cwd, '.env');
-  if (!existsSync(envPath)) {
-    printWarning(
-      '.env file not found. Copy .env.example to .env and add your API key:\n' +
-        '  cp .env.example .env'
-    );
-  }
-
   console.log('');
   console.log(chalk.bold.green('  DiffGuard initialized successfully!'));
   console.log('');
   console.log(chalk.dim('  Next steps:'));
-  console.log(chalk.dim('  1. Add your ANTHROPIC_API_KEY to .env'));
-  console.log(chalk.dim(`  2. Edit config: ${projectDir(cwd)}/config.yaml`));
-  console.log(chalk.dim('  3. Run: diffguard review --target main'));
+  console.log(chalk.dim(`  1. Edit config if needed: ${projectDir(cwd)}/config.yaml`));
+  console.log(chalk.dim('  2. Run: diffguard review'));
   console.log('');
 }
 

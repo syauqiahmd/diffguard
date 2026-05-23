@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import { getTodayUsage, getWeekUsage } from '../../core/budget/tracker.js';
 import { formatCost, formatTokens } from '../../core/tokenizer/estimator.js';
 import { printHeader, printInfo } from '../../core/formatter/terminal.js';
+import { requireInit } from '../../core/init-guard.js';
 import type { UsageRecord } from '../../types/index.js';
 
 function summarizeRecords(records: UsageRecord[]): {
@@ -40,6 +41,7 @@ function findMostExpensive(records: UsageRecord[]): UsageRecord | null {
 }
 
 async function runUsage(): Promise<void> {
+  requireInit();
   printHeader('DiffGuard Usage');
 
   const [todayRecords, weekRecords] = await Promise.all([

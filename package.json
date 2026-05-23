@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Local-first AI engineering assistant for backend teams",
   "type": "module",
-  "bin": { "diffguard": "./dist/cli.js" },
+  "bin": {
+    "diffguard": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
@@ -11,10 +13,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
+    "@google/genai": "^2.6.0",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
     "commander": "^13.1.0",
     "dotenv": "^16.5.0",
+    "openai": "^6.39.0",
     "ora": "^8.2.0",
     "simple-git": "^3.27.0",
     "yaml": "^2.8.0",
