@@ -270,9 +270,9 @@ DIFFGUARD_MAX_SESSION_COST_USD=2.00
 
   printSuccess('DiffGuard initialized successfully!');
   console.log('');
-  console.log(chalk.dim('  Next steps:'));
-  console.log(chalk.dim(`  1. Edit config if needed: ${projectDir(cwd)}/config.yaml`));
-  console.log(chalk.dim('  2. Run: diffguard review'));
+  printInfo('Next steps:');
+  printInfo(`  1. Edit config if needed: ${projectDir(cwd)}/config.yaml`);
+  printInfo('  2. Run: diffguard review');
   console.log('');
 }
 

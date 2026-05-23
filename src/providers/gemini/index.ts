@@ -44,7 +44,7 @@ export class GeminiProvider implements AIProvider {
       response.usageMetadata?.promptTokenCount ?? estimateTokens(prompt + system);
     const outputTokens =
       response.usageMetadata?.candidatesTokenCount ?? estimateTokens(content);
-    const cost = estimateCost(inputTokens, outputTokens, model);
+    const cost = estimateCost(inputTokens, outputTokens, model, 'gemini');
 
     return {
       content,

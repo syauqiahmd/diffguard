@@ -57,7 +57,7 @@ export class OpenAIProvider implements AIProvider {
     const content = response.choices[0]?.message?.content ?? '';
     const inputTokens = response.usage?.prompt_tokens ?? 0;
     const outputTokens = response.usage?.completion_tokens ?? 0;
-    const cost = estimateCost(inputTokens, outputTokens, model);
+    const cost = estimateCost(inputTokens, outputTokens, model, 'openai');
 
     return {
       content,
@@ -89,7 +89,7 @@ export class OpenAIProvider implements AIProvider {
     const content = response.choices[0]?.message?.content ?? '';
     const inputTokens = response.usage?.prompt_tokens ?? 0;
     const outputTokens = response.usage?.completion_tokens ?? 0;
-    const cost = estimateCost(inputTokens, outputTokens, model);
+    const cost = estimateCost(inputTokens, outputTokens, model, 'openai');
 
     return {
       content,

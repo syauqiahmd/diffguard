@@ -37,6 +37,8 @@ const MODEL_DEFAULTS: Record<string, Record<string, string>> = {
   ollama:    { fast: 'llama3.2',           balanced: 'llama3.2',          deep: 'llama3.2'           },
 };
 
+const VALID_MODES = new Set(['fast', 'balanced', 'deep']);
+
 export function selectModel(
   mode: string,
   task: 'summarize' | 'review',
@@ -48,12 +50,13 @@ export function selectModel(
 
   const provider = process.env.DIFFGUARD_PROVIDER ?? 'anthropic';
   const providerDefaults = MODEL_DEFAULTS[provider] ?? MODEL_DEFAULTS.anthropic!;
+  const resolvedMode = VALID_MODES.has(mode) ? mode : 'balanced';
 
   if (task === 'summarize') {
     return providerDefaults.fast!;
   }
 
-  return providerDefaults[mode] ?? providerDefaults.balanced!;
+  return providerDefaults[resolvedMode] ?? providerDefaults.balanced!;
 }
 
 export function resetProvider(): void {

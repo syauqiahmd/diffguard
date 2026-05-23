@@ -61,6 +61,10 @@ export class OllamaProvider implements AIProvider {
 
     const data = (await response.json()) as OllamaResponse;
 
+    if (!data.message?.content) {
+      throw new Error('Ollama returned an empty or malformed response.');
+    }
+
     const inputTokens =
       data.prompt_eval_count ?? estimateTokens(system + prompt);
     const outputTokens =
