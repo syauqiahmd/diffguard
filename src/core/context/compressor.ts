@@ -27,6 +27,7 @@ export async function compressRelatedFiles(
   let savedTokens = 0;
   const results: ContextFile[] = [];
 
+  // Sequential (not Promise.all) so the spinner can update per file without race conditions
   for (let i = 0; i < files.length; i++) {
     const file = files[i]!;
 

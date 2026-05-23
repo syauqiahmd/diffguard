@@ -185,7 +185,7 @@ export function printCommentReview(content: string): void {
     }
   }
   if (droppedLines > 0) {
-    console.log(chalk.dim(`  (${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered)`));
+    process.stdout.write(chalk.dim(`  (${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered)\n`));
   }
   console.log('');
 }

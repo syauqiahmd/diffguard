@@ -41,7 +41,7 @@ export function metaPath(cwd: string = process.cwd()): string {
 
 export function reviewReportPath(branch: string, cwd: string = process.cwd()): string {
   const date = new Date().toISOString().split('T')[0];
-  const safeBranch = branch.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 35);
+  const safeBranch = branch.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 35); // 35 + separator + 4-char suffix = 40 total
   const uniq = Date.now().toString(36).slice(-4);
   return join(reviewsDir(cwd), `${date}-${safeBranch}-${uniq}.md`);
 }
