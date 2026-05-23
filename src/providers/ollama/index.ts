@@ -1,11 +1,14 @@
+import { z } from 'zod';
 import type { AIProvider, AIResponse } from '../../types/index.js';
 import { estimateTokens } from '../../core/tokenizer/estimator.js';
 
-interface OllamaResponse {
-  message: { content: string };
-  prompt_eval_count?: number;
-  eval_count?: number;
-}
+const TIMEOUT_MS = 60_000;
+
+const OllamaResponseSchema = z.object({
+  message: z.object({ content: z.string() }),
+  prompt_eval_count: z.number().optional(),
+  eval_count: z.number().optional(),
+});
 
 export class OllamaProvider implements AIProvider {
   readonly name = 'ollama';
@@ -24,6 +27,9 @@ export class OllamaProvider implements AIProvider {
     system: string,
     model: string = 'llama3'
   ): Promise<AIResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     let response: Response;
 
     try {
@@ -39,8 +45,12 @@ export class OllamaProvider implements AIProvider {
           stream: false,
           options: { temperature: 0 },
         }),
+        signal: controller.signal,
       });
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`Ollama request timed out after ${TIMEOUT_MS / 1000}s. Is the model loaded?`);
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (
         message.includes('ECONNREFUSED') ||
@@ -53,6 +63,8 @@ export class OllamaProvider implements AIProvider {
         throw new Error('Ollama is not running. Start it with: ollama serve');
       }
       throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!response.ok) {
@@ -62,16 +74,16 @@ export class OllamaProvider implements AIProvider {
       );
     }
 
-    const data = (await response.json()) as OllamaResponse;
+    const raw = await response.json();
+    const parsed = OllamaResponseSchema.safeParse(raw);
 
-    if (!data.message?.content) {
-      throw new Error('Ollama returned an empty or malformed response.');
+    if (!parsed.success) {
+      throw new Error(`Ollama returned an unexpected response shape: ${parsed.error.message}`);
     }
 
-    const inputTokens =
-      data.prompt_eval_count ?? estimateTokens(system + prompt);
-    const outputTokens =
-      data.eval_count ?? estimateTokens(data.message.content);
+    const data = parsed.data;
+    const inputTokens = data.prompt_eval_count ?? estimateTokens(system + prompt);
+    const outputTokens = data.eval_count ?? estimateTokens(data.message.content);
 
     return {
       content: data.message.content,

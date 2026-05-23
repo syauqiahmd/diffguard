@@ -261,7 +261,8 @@ async function runReview(options: ReviewOptions): Promise<void> {
       const provider = getProvider(config);
       const { files: compressed, savedTokens } = await compressRelatedFiles(
         context.relatedFiles,
-        provider
+        provider,
+        compressSpinner
       );
       context.relatedFiles = compressed;
       if (savedTokens > 0) {

@@ -68,27 +68,37 @@ const DEFAULT_CONFIG: DiffguardConfig = {
 
 let _config: DiffguardConfig | null = null;
 
+const VALID_PROVIDERS = new Set(['anthropic', 'openai', 'gemini', 'ollama']);
+
 function tryLoadYaml(configPath: string): DiffguardConfig | null {
   if (!existsSync(configPath)) return null;
-  try {
-    const raw = readFileSync(configPath, 'utf-8');
-    const parsed = parseYaml(raw) as unknown;
-    return DiffguardConfigSchema.parse(parsed) as DiffguardConfig;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`Warning: Failed to parse ${configPath}: ${message}\nUsing defaults.\n`);
-    return null;
-  }
+  // File exists — let parse errors propagate so callers can report them properly
+  const raw = readFileSync(configPath, 'utf-8');
+  const parsed = parseYaml(raw) as unknown;
+  return DiffguardConfigSchema.parse(parsed) as DiffguardConfig;
 }
 
 export function loadConfig(): DiffguardConfig {
   if (_config) return _config;
 
-  // Priority: global project config → local diffguard.yaml → defaults
-  _config =
-    tryLoadYaml(globalConfigPath()) ??
-    tryLoadYaml(resolve(process.cwd(), 'diffguard.yaml')) ??
-    DEFAULT_CONFIG;
+  try {
+    _config =
+      tryLoadYaml(globalConfigPath()) ??
+      tryLoadYaml(resolve(process.cwd(), 'diffguard.yaml')) ??
+      DEFAULT_CONFIG;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`\n✗ Config file has invalid syntax: ${message}\n`);
+    process.stderr.write(`  Fix your config.yaml or delete it to use defaults.\n\n`);
+    process.exit(1);
+  }
+
+  const provider = _config.review.provider ?? process.env.DIFFGUARD_PROVIDER;
+  if (provider && !VALID_PROVIDERS.has(provider)) {
+    process.stderr.write(`\n✗ Invalid provider "${provider}" in config.\n`);
+    process.stderr.write(`  Supported: anthropic, openai, gemini, ollama\n\n`);
+    process.exit(1);
+  }
 
   return _config;
 }

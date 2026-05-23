@@ -4,8 +4,12 @@ import { formatCost, formatTokens } from '../tokenizer/estimator.js';
 import { usagePath, ensureProjectDir } from '../paths.js';
 
 export async function recordUsage(record: UsageRecord): Promise<void> {
-  ensureProjectDir();
-  appendFileSync(usagePath(), JSON.stringify(record) + '\n', 'utf-8');
+  try {
+    ensureProjectDir();
+    appendFileSync(usagePath(), JSON.stringify(record) + '\n', 'utf-8');
+  } catch {
+    // Non-fatal — disk errors must not crash the CLI after a successful review
+  }
 }
 
 function readAllUsage(): UsageRecord[] {

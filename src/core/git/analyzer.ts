@@ -31,8 +31,18 @@ export async function fetchRemoteBranch(target: string, source?: string): Promis
 }
 
 export async function getCurrentBranch(): Promise<string> {
-  const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
-  return branch.trim();
+  try {
+    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
+    const name = branch.trim();
+    if (name === 'HEAD') {
+      // Detached HEAD state — use short SHA as display name
+      const sha = await git.revparse(['--short', 'HEAD']);
+      return `detached@${sha.trim()}`;
+    }
+    return name;
+  } catch {
+    return 'unknown';
+  }
 }
 
 export async function getCommitsBehind(targetBranch: string, sourceBranch?: string): Promise<number> {

@@ -174,6 +174,12 @@ function buildConfigYaml(stack: DetectedStack): string {
 }
 
 function ask(question: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      'diffguard init requires an interactive terminal. Cannot run in non-TTY environments (CI, pipes).'
+    );
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

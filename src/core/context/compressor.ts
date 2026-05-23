@@ -21,27 +21,36 @@ async function summarize(file: ContextFile, provider: AIProvider): Promise<strin
 
 export async function compressRelatedFiles(
   files: ContextFile[],
-  provider: AIProvider
+  provider: AIProvider,
+  spinner?: { text: string }
 ): Promise<{ files: ContextFile[]; savedTokens: number }> {
   let savedTokens = 0;
+  const results: ContextFile[] = [];
 
-  const compressed = await Promise.all(
-    files.map(async (file) => {
-      if (file.content.length <= COMPRESS_THRESHOLD_CHARS) return file;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]!;
 
-      const summary = await summarize(file, provider);
-      const originalTokens = file.tokenEstimate;
-      const newTokens = estimateTokens(summary);
-      savedTokens += Math.max(0, originalTokens - newTokens);
+    if (spinner) {
+      spinner.text = `Compressing context (${i + 1}/${files.length}): ${file.path}`;
+    }
 
-      return {
-        ...file,
-        content: summary,
-        reason: file.reason + ' [summarized]',
-        tokenEstimate: newTokens,
-      };
-    })
-  );
+    if (file.content.length <= COMPRESS_THRESHOLD_CHARS) {
+      results.push(file);
+      continue;
+    }
 
-  return { files: compressed, savedTokens };
+    const summary = await summarize(file, provider);
+    const originalTokens = file.tokenEstimate;
+    const newTokens = estimateTokens(summary);
+    savedTokens += Math.max(0, originalTokens - newTokens);
+
+    results.push({
+      ...file,
+      content: summary,
+      reason: file.reason + ' [summarized]',
+      tokenEstimate: newTokens,
+    });
+  }
+
+  return { files: results, savedTokens };
 }

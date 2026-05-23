@@ -163,6 +163,7 @@ function capFix(snippet: string, max = 60): string {
 
 export function printCommentReview(content: string): void {
   console.log('');
+  let droppedLines = 0;
   const lines = content.split('\n');
   for (const line of lines) {
     const trimmed = line.trim().replace(/^[-*•]\s+/, '');
@@ -179,8 +180,12 @@ export function printCommentReview(content: string): void {
       const note = colorTag(trimmed.slice(arrowIdx + 4));
       const locFormatted = loc.replace(/:(\d+)$/, (_, n) => chalk.dim(':') + chalk.yellow(n));
       console.log(`  ${chalk.cyan(locFormatted)} ${chalk.dim('->')} ${note}`);
+    } else {
+      droppedLines++;
     }
-    // drop any line that doesn't match a known format (stray prose)
+  }
+  if (droppedLines > 0) {
+    console.log(chalk.dim(`  (${droppedLines} unstructured line${droppedLines === 1 ? '' : 's'} filtered)`));
   }
   console.log('');
 }
