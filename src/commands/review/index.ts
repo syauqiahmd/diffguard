@@ -23,11 +23,18 @@ import {
 } from '../../core/formatter/terminal.js';
 import { requireInit } from '../../core/init-guard.js';
 import { applySuppressions } from '../../core/suppressor/index.js';
+import { recordInlineSuppression, getThresholdPatterns } from '../../core/suppressor/stats.js';
+import { getLastReviewedSha, setLastReviewedSha, resetBranchReview } from '../../core/git/last-review.js';
+import { getHeadSha, isShaReachable, getChangedFilesSince } from '../../core/git/analyzer.js';
+import { resetBranchStats } from '../../core/suppressor/stats.js';
+import { addSuppressRuleToConfig } from '../config/index.js';
+import * as readline from 'readline';
+import chalk from 'chalk';
 import type { AIResponse } from '../../types/index.js';
 
 interface ReviewOptions {
-  target?: string;   // target branch (default: auto-detect main/master)
-  branch?: string;   // source branch (default: local HEAD)
+  target?: string;
+  branch?: string;
   deep: boolean;
   mode?: 'fast' | 'balanced' | 'deep';
   provider?: string;
@@ -35,6 +42,18 @@ interface ReviewOptions {
   ai: boolean;
   budget?: string;
   noCache: boolean;
+  full: boolean;
+}
+
+function askYesNo(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return Promise.resolve(false);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase().startsWith('y'));
+    });
+  });
 }
 
 function buildSystemPrompt(mode: 'comment' | 'standard'): string {
@@ -212,9 +231,44 @@ async function runReview(options: ReviewOptions): Promise<void> {
 
   const analyzeSpinner = ora('Analyzing git diff...').start();
   let gitAnalysis: Awaited<ReturnType<typeof analyzeGit>>;
+  let isIncremental = false;
+  let headSha: string | null = null;
+
   try {
     gitAnalysis = await analyzeGit(target, options.branch);
-    analyzeSpinner.succeed(`Analysis complete`);
+    const currentBranch = gitAnalysis.currentBranch;
+
+    // Incremental review: only diff new commits since last review
+    const incrementalEnabled = config.review.incremental === true && !options.full;
+    if (incrementalEnabled) {
+      const lastSha = getLastReviewedSha(currentBranch);
+      if (lastSha && await isShaReachable(lastSha)) {
+        const newFiles = await getChangedFilesSince(lastSha);
+        if (newFiles.length > 0) {
+          gitAnalysis = { ...gitAnalysis, changedFiles: newFiles };
+          isIncremental = true;
+          analyzeSpinner.succeed(`Analysis complete (incremental — new commits since last review)`);
+        } else {
+          analyzeSpinner.succeed(`Analysis complete (no new commits since last review)`);
+        }
+      } else {
+        if (lastSha) {
+          // SHA no longer reachable (rebase/force-push) — reset and do full review
+          resetBranchReview(currentBranch);
+        }
+        analyzeSpinner.succeed(`Analysis complete`);
+      }
+    } else {
+      analyzeSpinner.succeed(`Analysis complete`);
+    }
+
+    // If --full: reset incremental state and suppression stats for this branch
+    if (options.full) {
+      resetBranchReview(currentBranch);
+      resetBranchStats(currentBranch);
+    }
+
+    headSha = await getHeadSha();
   } catch (err) {
     analyzeSpinner.fail('Git analysis failed');
     const message = err instanceof Error ? err.message : String(err);
@@ -333,13 +387,20 @@ async function runReview(options: ReviewOptions): Promise<void> {
     const { content: reviewContent, confidence } = extractConfidence(aiResponse.content);
 
     if (isComment) {
-      const { content: filtered, suppressedCount } = applySuppressions(reviewContent, config);
+      const { content: filtered, suppressedCount, inlineSuppressed } = applySuppressions(reviewContent, config);
       printCommentReview(filtered, suppressedCount);
+
+      // Record inline suppressions for learning
+      for (const s of inlineSuppressed) {
+        recordInlineSuppression(gitAnalysis.currentBranch, s.file, s.text);
+      }
     } else {
       printReview(reviewContent);
     }
     printCostSummary(aiResponse, confidence, {
-      currentBranch: gitAnalysis.currentBranch,
+      currentBranch: isIncremental
+        ? `${gitAnalysis.currentBranch} (incremental)`
+        : gitAnalysis.currentBranch,
       targetBranch: target,
       filesChanged: gitAnalysis.changedFiles.length,
       commitsBehind: gitAnalysis.commitsBehind,
@@ -356,6 +417,43 @@ async function runReview(options: ReviewOptions): Promise<void> {
         outputTokens: aiResponse.outputTokens,
         cost: aiResponse.cost,
       });
+    }
+
+    // Store HEAD SHA for incremental review on next run
+    if (headSha && config.review.incremental) {
+      setLastReviewedSha(gitAnalysis.currentBranch, headSha);
+    }
+
+    // Suppression learning: check for patterns hitting the threshold
+    if (isComment) {
+      const suggestions = getThresholdPatterns(gitAnalysis.currentBranch);
+      if (suggestions.length > 0) {
+        console.log('');
+        for (const pattern of suggestions) {
+          // Extract a concise contains hint: first ~40 chars of the note (after the tag)
+          const noteWithoutTag = pattern.text.replace(/^\[[^\]]+\]\s*/, '');
+          const hint = noteWithoutTag.slice(0, 40).trimEnd();
+
+          process.stdout.write(
+            chalk.yellow(`  💡 Suppressed ${pattern.count}× across ${pattern.files.length} files:\n`) +
+            chalk.dim(`     "${pattern.text}"\n`) +
+            chalk.dim(`     To suppress project-wide:\n`) +
+            chalk.cyan(`       diffguard config add-suppress --contains "${hint}"\n`)
+          );
+
+          const add = await askYesNo(chalk.bold('     Add suppress rule now? (y/N): '));
+          if (add) {
+            try {
+              addSuppressRuleToConfig({ contains: hint });
+              printSuccess(`Suppress rule added for "${hint}"`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              printError(`Could not add rule: ${msg}`);
+            }
+          }
+          console.log('');
+        }
+      }
     }
   }
 
@@ -420,6 +518,7 @@ export const reviewCommand = new Command('review')
   .option('--output <format>', 'Output format: markdown | json')
   .option('--no-ai', 'Skip AI review, only run local rules')
   .option('--budget <amount>', 'Maximum spend in USD (e.g. 0.25)')
+  .option('--full', 'Force full review, ignoring incremental state (resets stored SHA)', false)
   .action(async (options: ReviewOptions) => {
     try {
       await runReview(options);

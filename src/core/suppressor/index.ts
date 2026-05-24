@@ -2,11 +2,16 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import type { DiffguardConfig, SuppressRule } from '../../types/index.js';
 
+export interface InlineSuppressed {
+  file: string;
+  text: string;
+}
+
 interface ParsedFinding {
   file: string;
   line: number | null;
-  text: string;     // full note after the arrow
-  rawLines: string[]; // original lines (finding + optional fix:)
+  text: string;
+  rawLines: string[];
 }
 
 const INLINE_IGNORE = /\/\/\s*diffguard-ignore|#\s*diffguard-ignore/i;
@@ -16,8 +21,8 @@ function hasInlineIgnore(file: string, line: number): boolean {
   if (!existsSync(filePath)) return false;
   try {
     const fileLines = readFileSync(filePath, 'utf-8').split('\n');
-    const above = fileLines[line - 2] ?? ''; // line above (1-indexed → 0-indexed - 1)
-    const same  = fileLines[line - 1] ?? ''; // the flagged line itself
+    const above = fileLines[line - 2] ?? '';
+    const same  = fileLines[line - 1] ?? '';
     return INLINE_IGNORE.test(above) || INLINE_IGNORE.test(same);
   } catch {
     return false;
@@ -32,23 +37,14 @@ function matchesRule(finding: ParsedFinding, rule: SuppressRule): boolean {
   return true;
 }
 
-function isSuppressed(finding: ParsedFinding, rules: SuppressRule[]): boolean {
-  if (finding.line !== null && hasInlineIgnore(finding.file, finding.line)) return true;
-  return rules.some((rule) => matchesRule(finding, rule));
-}
-
 export function applySuppressions(
   content: string,
   config: DiffguardConfig
-): { content: string; suppressedCount: number } {
+): { content: string; suppressedCount: number; inlineSuppressed: InlineSuppressed[] } {
   const rules = config.suppress ?? [];
-  if (rules.length === 0) {
-    // Skip parsing entirely when no rules configured and no inline ignores possible
-    return { content, suppressedCount: 0 };
-  }
-
   const lines = content.split('\n');
   const resultLines: string[] = [];
+  const inlineSuppressed: InlineSuppressed[] = [];
   let suppressedCount = 0;
   let i = 0;
 
@@ -67,7 +63,6 @@ export function applySuppressions(
 
       const block: string[] = [raw];
 
-      // Collect the fix: line if present
       const next = lines[i + 1];
       if (next) {
         const nextTrimmed = next.trim().replace(/^[-*•]\s+/, '');
@@ -77,8 +72,17 @@ export function applySuppressions(
         }
       }
 
-      if (isSuppressed({ file, line, text, rawLines: block }, rules)) {
+      const finding: ParsedFinding = { file, line, text, rawLines: block };
+
+      // Check inline suppression first (tracked separately for learning)
+      const suppressedInline = line !== null && hasInlineIgnore(file, line);
+      const suppressedByRule = rules.some((rule) => matchesRule(finding, rule));
+
+      if (suppressedInline || suppressedByRule) {
         suppressedCount++;
+        if (suppressedInline) {
+          inlineSuppressed.push({ file, text });
+        }
       } else {
         resultLines.push(...block);
       }
@@ -89,5 +93,5 @@ export function applySuppressions(
     i++;
   }
 
-  return { content: resultLines.join('\n'), suppressedCount };
+  return { content: resultLines.join('\n'), suppressedCount, inlineSuppressed };
 }

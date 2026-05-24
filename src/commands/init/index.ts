@@ -115,7 +115,7 @@ function detectStack(cwd: string): DetectedStack {
   return detected;
 }
 
-function buildConfigYaml(stack: DetectedStack): string {
+function buildConfigYaml(stack: DetectedStack, incremental: boolean): string {
   const forbidden = ['console.log', 'debugger', 'TODO', 'FIXME'];
   const required: string[] = [];
 
@@ -131,6 +131,7 @@ function buildConfigYaml(stack: DetectedStack): string {
     review: {
       mode: 'balanced',
       provider: process.env.DIFFGUARD_PROVIDER ?? 'anthropic',
+      incremental,
     },
     rules: {
       max_complexity: 15,
@@ -149,7 +150,9 @@ function buildConfigYaml(stack: DetectedStack): string {
   yaml += `review:\n`;
   yaml += `  mode: ${config.review.mode}\n`;
   yaml += `  provider: ${config.review.provider}\n`;
-  yaml += `  # model: claude-haiku-4-5   # uncomment to override DIFFGUARD_MODEL env\n\n`;
+  yaml += `  # model: claude-haiku-4-5   # uncomment to override DIFFGUARD_MODEL env\n`;
+  yaml += `  # incremental: only send new commits to AI since last review (saves cost on active branches)\n`;
+  yaml += `  incremental: ${config.review.incremental}\n\n`;
   yaml += `rules:\n`;
   yaml += `  max_complexity: ${config.rules.max_complexity}\n`;
   yaml += `  forbidden:\n`;
@@ -238,9 +241,16 @@ async function runInit(): Promise<void> {
   const generateRules = await ask('  Generate recommended rules? (Y/n): ');
   const useRecommended = !generateRules || generateRules.toLowerCase().startsWith('y');
 
+  // Ask about incremental review
+  console.log('');
+  console.log(chalk.dim('  Incremental review: only sends new commits to AI since the last review.'));
+  console.log(chalk.dim('  Saves cost on long-lived branches. Use --full to override anytime.'));
+  const incrementalAnswer = await ask('  Enable incremental review? (Y/n): ');
+  const incremental = !incrementalAnswer || incrementalAnswer.toLowerCase().startsWith('y');
+
   let configContent: string;
   if (useRecommended && stack.language !== 'unknown') {
-    configContent = buildConfigYaml(stack);
+    configContent = buildConfigYaml(stack, incremental);
     printInfo('Generating config based on detected stack...');
   } else {
     configContent = DEFAULT_CONFIG_YAML;

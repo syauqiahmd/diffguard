@@ -39,6 +39,14 @@ export function metaPath(cwd: string = process.cwd()): string {
   return join(projectDir(cwd), 'meta.json');
 }
 
+export function suppressionStatsPath(cwd: string = process.cwd()): string {
+  return join(projectDir(cwd), 'suppression-stats.json');
+}
+
+export function lastReviewPath(cwd: string = process.cwd()): string {
+  return join(projectDir(cwd), 'last-review.json');
+}
+
 export function reviewReportPath(branch: string, cwd: string = process.cwd()): string {
   const date = new Date().toISOString().split('T')[0];
   const safeBranch = branch.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 35); // 35 + separator + 4-char suffix = 40 total

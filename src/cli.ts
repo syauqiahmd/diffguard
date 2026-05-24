@@ -5,6 +5,7 @@ import { initCommand } from './commands/init/index.js';
 import { usageCommand } from './commands/usage/index.js';
 import { prCommand } from './commands/pr/index.js';
 import { projectsCommand } from './commands/projects/index.js';
+import { configCommand } from './commands/config/index.js';
 
 program
   .name('diffguard')
@@ -16,5 +17,6 @@ program.addCommand(initCommand);
 program.addCommand(usageCommand);
 program.addCommand(prCommand);
 program.addCommand(projectsCommand);
+program.addCommand(configCommand);
 
 program.parse();
