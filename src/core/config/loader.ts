@@ -26,6 +26,7 @@ const DiffguardConfigSchema = z.object({
       mode: z.enum(['fast', 'balanced', 'deep']).default('balanced'),
       provider: z.string().optional(),
       model: z.string().optional(),
+      incremental: z.boolean().optional().default(false),
     })
     .default({}),
   rules: z

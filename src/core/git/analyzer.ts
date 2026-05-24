@@ -100,6 +100,35 @@ export async function getChangedFiles(targetBranch: string, sourceBranch?: strin
   }
 }
 
+export async function getHeadSha(): Promise<string> {
+  return (await git.revparse(['HEAD'])).trim();
+}
+
+export async function isShaReachable(sha: string): Promise<boolean> {
+  try {
+    await git.raw(['merge-base', '--is-ancestor', sha, 'HEAD']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getChangedFilesSince(sinceSha: string): Promise<ChangedFile[]> {
+  try {
+    const diffOutput = await git.raw([
+      'diff',
+      sinceSha,
+      'HEAD',
+      '--diff-algorithm=histogram',
+    ]);
+    if (!diffOutput.trim()) return [];
+    return parseGitDiffOutput(diffOutput);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to get incremental diff: ${message}`);
+  }
+}
+
 export async function analyzeGit(targetBranch: string, sourceBranch?: string): Promise<GitAnalysis> {
   // Display name: provided branch name or local branch name
   const currentBranch = sourceBranch ?? await getCurrentBranch();

@@ -57,6 +57,7 @@ export interface DiffguardConfig {
     mode: 'fast' | 'balanced' | 'deep';
     provider?: string;
     model?: string;
+    incremental?: boolean;
   };
   rules: {
     max_complexity?: number;
