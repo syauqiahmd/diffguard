@@ -9,7 +9,15 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix",
+      "bash -c 'tsc --noEmit'"
+    ]
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
@@ -26,6 +34,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^10.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3"
   }
